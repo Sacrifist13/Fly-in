@@ -1,0 +1,8 @@
+Parsing -> 
+
+Virer les lignes vides et les lognes commencant par #
+
+Si il y a plus d une ligne commencant par 'nb_drones :', 'start_hub :', 'end_hub: ', 'hub: ', 'connection: '
+
+Recuperer toutes les erreurs dans un dictionnaire
+Faire un affichage propre des erreurs dans un fichier log_errors.txt
