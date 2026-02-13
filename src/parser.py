@@ -1,9 +1,7 @@
 import re
 import sys
-import typing as tp
-from pydantic import BaseModel
+from typing import List, Tuple, Any
 from pathlib import Path
-from collections import defaultdict
 
 
 class Reader:
@@ -16,7 +14,7 @@ class Reader:
     def __init__(self, file_path: str) -> None:
         self.file_path = Path(file_path)
 
-    def scan_file_format(self) -> False:
+    def scan_file_format(self) -> List[Tuple[str | Any, ...]] | None:
 
         errors = []
 
@@ -40,7 +38,7 @@ class Reader:
                 f"{self.file_path.name}{self.RESET}\n",
                 file=sys.stderr,
             )
-            return False
+            return None
 
         try:
             with open(self.file_path, "r") as f:
@@ -57,7 +55,7 @@ class Reader:
                         f"{self.file_path.name}{self.RESET}\n",
                         file=sys.stderr,
                     )
-                    return False
+                    return None
 
                 if not lines[0][1].startswith("nb_drones"):
                     errors.append(
@@ -122,19 +120,20 @@ class Reader:
                         f"{err}{self.RESET}",
                         file=sys.stderr,
                     )
-                return False
+                return None
 
-            self.valid_reg_groups = valid_reg_groups
-
-            return True
+            return valid_reg_groups
 
         except PermissionError:
             print(f"File <{self.file_path}> permission error.")
-            return False
+            return None
 
         except Exception as e:
             print(
                 f"\33[31mUnexpected error reading file -> "
                 f"{type(e).__name__}: {e}"
             )
-            return False
+            return None
+
+    def format_data_for_pydantic(self):
+        
