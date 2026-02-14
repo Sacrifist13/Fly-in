@@ -1,6 +1,6 @@
-from .parser import Reader
+from .parser import Parser
 
 
-reader = Reader("maps/easy/01_linear_path.txt")
+reader = Parser("maps/easy/01_linear_path.txt")
 
-reader.scan_file_format()
+print(reader.format_data_for_pydantic())

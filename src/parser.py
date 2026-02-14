@@ -1,10 +1,11 @@
 import re
 import sys
-from typing import List, Tuple, Any
+import json
+from typing import List, Tuple, Any, Dict
 from pathlib import Path
 
 
-class Reader:
+class Parser:
 
     RED = "\033[91m"
     YELLOW = "\033[93m"
@@ -13,8 +14,22 @@ class Reader:
 
     def __init__(self, file_path: str) -> None:
         self.file_path = Path(file_path)
+        self.map: Dict[str, Any] = {}
 
     def scan_file_format(self) -> List[Tuple[str | Any, ...]] | None:
+        """
+        Scans and validates the map file structural format using regex.
+
+        Reads the file line by line, ignoring comments and empty lines.
+        It validates the syntax against the required patterns for drones,
+        hubs, and connections. It ensures exactly one 'nb_drones',
+        'start_hub', and 'end_hub' exists. Errors print to stderr.
+
+        Returns:
+            List[Tuple[str | Any, ...]] | None: Extracted regex groups for
+            each valid line. Returns None if the file is unreadable or if
+            any parsing errors are detected.
+        """
 
         errors = []
 
@@ -113,7 +128,6 @@ class Reader:
                     f"'{self.file_path.name}' ==={self.RESET}\n",
                     file=sys.stderr,
                 )
-
                 for err in errors:
                     print(
                         f"{self.RED} • {self.RESET}{self.YELLOW}"
@@ -130,10 +144,236 @@ class Reader:
 
         except Exception as e:
             print(
-                f"\33[31mUnexpected error reading file -> "
-                f"{type(e).__name__}: {e}"
+                f"{self.RED}Unexpected error reading file -> "
+                f"{type(e).__name__}: {e}{self.RESET}"
             )
             return None
 
-    def format_data_for_pydantic(self):
-        
+    def _parse_hub_metadata(
+        self, metadata: str, invalid_metadata: bool
+    ) -> List[str | None] | None:
+
+        parse_metadata: List[str | None] = ["normal", None, "1"]
+        valid_param = ["zone", "color", "max_drones"]
+        param_find = []
+        errors = []
+
+        if not metadata:
+            return parse_metadata
+
+        try:
+            params = metadata.split()
+            for parameter in params:
+                param_value = parameter.split("=")
+
+                if not len(param_value) == 2:
+                    errors.append(
+                        "Invalid hub metadata format: expected 'key=value', "
+                        f"got '{parameter}'"
+                    )
+
+                else:
+                    param, value = param_value
+
+                    if param not in valid_param:
+                        errors.append(
+                            f"Unknown hub metadata key: '{param}' in "
+                            f"'{parameter}'. Allowed keys: "
+                            f"{', '.join(valid_param)}"
+                        )
+                        continue
+                    if param in param_find:
+                        errors.append(
+                            f"Duplicate metadata argument: '{param}'"
+                            " is defined multiple times."
+                        )
+                        continue
+
+                    param_find.append(param)
+                    if param == "zone":
+                        parse_metadata[0] = value
+                    elif param == "color":
+                        parse_metadata[1] = value
+                    else:
+                        parse_metadata[2] = value
+
+            if errors:
+                if not invalid_metadata:
+                    print(
+                        f"\n{self.RED}{self.BOLD}=== ❌ PARSING ERRORS IN "
+                        f"'{self.file_path.name}' ==={self.RESET}\n",
+                        file=sys.stderr,
+                    )
+                print(
+                    f"{self.YELLOW}Raw metadata block: "
+                    f"[{metadata}]{self.RESET}\n",
+                    file=sys.stderr,
+                )
+                for err in errors:
+                    print(
+                        f"{self.RED} • {self.RESET}{self.YELLOW}"
+                        f"{err}{self.RESET}",
+                        file=sys.stderr,
+                    )
+
+                return None
+
+            return parse_metadata
+
+        except Exception as e:
+            print(
+                f"{self.RED}Unexpected error parsing file -> "
+                f"{type(e).__name__}: {e}{self.RESET}"
+            )
+            return None
+
+    def _parse_connection_metadata(
+        self, metadata: str, invalid_metadata: bool
+    ) -> str | None:
+        parse_metadata = "1"
+        errors = []
+
+        if not metadata:
+            return parse_metadata
+        try:
+            params = metadata.split()
+            if len(params) != 1:
+                errors.append(
+                    f"Too many arguments in connection metadata: expected 1, "
+                    f"got {len(params)}."
+                )
+            else:
+                param_value = params[0].split("=")
+
+                if not len(param_value) == 2:
+                    errors.append(
+                        "Invalid connection metadata format: expected "
+                        f"'key=value', got '{param_value}'"
+                    )
+                else:
+                    param, value = param_value
+
+                    if param != "max_link_capacity":
+                        errors.append(
+                            f"Unknown connection metadata key: '{param}' in "
+                            f"'{param_value}'. Allowed key: max_link_capacity"
+                        )
+                    else:
+                        return value
+
+            if errors:
+                if not invalid_metadata:
+                    print(
+                        f"\n{self.RED}{self.BOLD}=== ❌ PARSING ERRORS IN "
+                        f"'{self.file_path.name}' ==={self.RESET}\n",
+                        file=sys.stderr,
+                    )
+                print(
+                    f"{self.YELLOW}Raw metadata block: "
+                    f"[{metadata}]{self.RESET}\n",
+                    file=sys.stderr,
+                )
+                for err in errors:
+                    print(
+                        f"{self.RED} • {self.RESET}{self.YELLOW}"
+                        f"{err}{self.RESET}",
+                        file=sys.stderr,
+                    )
+            return None
+
+        except Exception as e:
+            print(
+                f"{self.RED}Unexpected error parsing file -> "
+                f"{type(e).__name__}: {e}{self.RESET}"
+            )
+            return None
+
+    def format_data_for_pydantic(self) -> bool:
+        """
+        Formats validated regex groups into a structured dictionary.
+
+        Calls the file scanner to retrieve regex groups and iterates
+        through them, parsing specific metadata for hubs and connections.
+        If all data is valid, it populates the 'map' attribute. Errors
+        are aggregated to avoid partial parsing and provide feedback.
+
+        Returns:
+            bool: True if the dictionary is successfully built and
+            formatted, False if any metadata parsing errors occur.
+        """
+
+        valid_reg_groups = self.scan_file_format()
+
+        invalid_metadata = False
+
+        if not valid_reg_groups:
+            return False
+
+        self.map["hub"] = []
+        self.map["connection"] = []
+
+        try:
+            for group in valid_reg_groups:
+
+                if group[0] == "nb_drones":
+                    self.map[group[0]] = group[1]
+
+                elif "hub" in group[0]:
+
+                    metadata = self._parse_hub_metadata(
+                        group[4], invalid_metadata
+                    )
+
+                    if not metadata:
+                        invalid_metadata = True
+                        print(f"{self.YELLOW}{'-' * 20}{self.RESET}")
+                        continue
+
+                    if group[0] == "start_hub" or group[0] == "end_hub":
+                        self.map[group[0]] = {
+                            "name": group[1],
+                            "x": group[2],
+                            "y": group[3],
+                            "zone": metadata[0],
+                            "color": metadata[1],
+                            "max_drones": metadata[2],
+                        }
+                    else:
+                        self.map["hub"].append(
+                            {
+                                "name": group[1],
+                                "x": group[2],
+                                "y": group[3],
+                                "zone": metadata[0],
+                                "color": metadata[1],
+                                "max_drones": metadata[2],
+                            }
+                        )
+                else:
+                    metadata = self._parse_connection_metadata(
+                        group[3], invalid_metadata
+                    )
+
+                    if not metadata:
+                        invalid_metadata = True
+                        print(f"{self.YELLOW}{'-' * 20}{self.RESET}")
+                        continue
+
+                    self.map["connection"].append(
+                        {
+                            "zone_1": group[1],
+                            "zone_2": group[2],
+                            "max_link_capacity": metadata,
+                        }
+                    )
+        except Exception as e:
+            print(
+                f"{self.RED}Unexpected error parsing file -> "
+                f"{type(e).__name__}: {e}{self.RESET}"
+            )
+            return False
+
+        if invalid_metadata:
+            return False
+
+        return True
