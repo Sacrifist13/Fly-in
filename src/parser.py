@@ -1,6 +1,5 @@
 import re
 import sys
-import json
 from typing import List, Tuple, Any, Dict
 from pathlib import Path
 
@@ -14,7 +13,7 @@ class Parser:
 
     def __init__(self, file_path: str) -> None:
         self.file_path = Path(file_path)
-        self.map: Dict[str, Any] = {}
+        self.format_map: Dict[str, Any] = {}
 
     def scan_file_format(self) -> List[Tuple[str | Any, ...]] | None:
         """
@@ -152,6 +151,22 @@ class Parser:
     def _parse_hub_metadata(
         self, metadata: str, invalid_metadata: bool
     ) -> List[str | None] | None:
+        """
+        Parses and validates the hub metadata block from the map file.
+
+        Extracts 'zone', 'color', and 'max_drones' from the provided
+        metadata string. It validates the 'key=value' formatting,
+        ensures only allowed keys are used, and checks for duplicate
+        arguments. Errors are aggregated and printed to stderr.
+
+        Args:
+            metadata: The raw metadata string containing hub properties.
+            invalid_metadata: Boolean flag to skip duplicate headers.
+
+        Returns:
+            List[str | None] | None: The parsed [zone, color, max_drones]
+            values, or None if any syntax or formatting errors occur.
+        """
 
         parse_metadata: List[str | None] = ["normal", None, "1"]
         valid_param = ["zone", "color", "max_drones"]
@@ -230,6 +245,22 @@ class Parser:
     def _parse_connection_metadata(
         self, metadata: str, invalid_metadata: bool
     ) -> str | None:
+        """
+        Parses and validates the connection metadata block from the map.
+
+        Extracts 'max_link_capacity' from the provided metadata string.
+        It enforces the presence of exactly one argument, validates the
+        'key=value' formatting, and ensures the correct key is used.
+
+        Args:
+            metadata: The raw metadata string containing the capacity.
+            invalid_metadata: Boolean flag to skip duplicate headers.
+
+        Returns:
+            str | None: The capacity value as a string (defaults to '1'),
+            or None if any syntax or formatting parsing errors occur.
+        """
+
         parse_metadata = "1"
         errors = []
 
@@ -309,14 +340,14 @@ class Parser:
         if not valid_reg_groups:
             return False
 
-        self.map["hub"] = []
-        self.map["connection"] = []
+        self.format_map["hub"] = []
+        self.format_map["connection"] = []
 
         try:
             for group in valid_reg_groups:
 
                 if group[0] == "nb_drones":
-                    self.map[group[0]] = group[1]
+                    self.format_map[group[0]] = group[1]
 
                 elif "hub" in group[0]:
 
@@ -330,7 +361,7 @@ class Parser:
                         continue
 
                     if group[0] == "start_hub" or group[0] == "end_hub":
-                        self.map[group[0]] = {
+                        self.format_map[group[0]] = {
                             "name": group[1],
                             "x": group[2],
                             "y": group[3],
@@ -339,7 +370,7 @@ class Parser:
                             "max_drones": metadata[2],
                         }
                     else:
-                        self.map["hub"].append(
+                        self.format_map["hub"].append(
                             {
                                 "name": group[1],
                                 "x": group[2],
@@ -359,7 +390,7 @@ class Parser:
                         print(f"{self.YELLOW}{'-' * 20}{self.RESET}")
                         continue
 
-                    self.map["connection"].append(
+                    self.format_map["connection"].append(
                         {
                             "zone_1": group[1],
                             "zone_2": group[2],

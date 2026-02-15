@@ -16,7 +16,7 @@ Dictionnaire MAP -> {
         "name": ..,
         "x": .., <-- x >= 0
         "y": .., <-- y >= 0
-        "zone: .., <- default normal
+        "zone": .., <- default normal
         "color" .., <- default None
         "max_drones":
 
