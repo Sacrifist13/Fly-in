@@ -1,6 +1,8 @@
 import re
 import sys
 from typing import List, Tuple, Any, Dict
+from .models import MapModel, HubModel, ConnectionModel
+from pydantic import ValidationError
 from pathlib import Path
 
 
@@ -34,8 +36,8 @@ class Parser:
 
         REG_NB = "^(nb_drones)\\s*:\\s*(\\d+)\\s*$"
         REG_HUB = (
-            "^(start_hub|end_hub|hub):\\s*([^\\s-]+)\\s+(\\d+)\\s+"
-            "(\\d+)\\s*(?:\\s+\\[\\s*(.*?)\\s*\\])?\\s*$"
+            "^(start_hub|end_hub|hub):\\s*([^\\s-]+)\\s+(-?\\d+)\\s+"
+            "(-?\\d+)\\s*(?:\\s+\\[\\s*(.*?)\\s*\\])?\\s*$"
         )
         REG_CONNECTION = (
             "^(connection)\\s*:\\s*([^\\s-]+)\\s*-\\s*([^\\s-]+)\\"
@@ -138,13 +140,18 @@ class Parser:
             return valid_reg_groups
 
         except PermissionError:
-            print(f"File <{self.file_path}> permission error.")
+            print(
+                f"{self.RED}File <{self.file_path}> permission error."
+                f"{self.RESET}",
+                file=sys.stderr,
+            )
             return None
 
         except Exception as e:
             print(
                 f"{self.RED}Unexpected error reading file -> "
-                f"{type(e).__name__}: {e}{self.RESET}"
+                f"{type(e).__name__}: {e}{self.RESET}",
+                file=sys.stderr,
             )
             return None
 
@@ -238,7 +245,8 @@ class Parser:
         except Exception as e:
             print(
                 f"{self.RED}Unexpected error parsing file -> "
-                f"{type(e).__name__}: {e}{self.RESET}"
+                f"{type(e).__name__}: {e}{self.RESET}",
+                file=sys.stderr,
             )
             return None
 
@@ -315,7 +323,8 @@ class Parser:
         except Exception as e:
             print(
                 f"{self.RED}Unexpected error parsing file -> "
-                f"{type(e).__name__}: {e}{self.RESET}"
+                f"{type(e).__name__}: {e}{self.RESET}",
+                file=sys.stderr,
             )
             return None
 
@@ -381,11 +390,11 @@ class Parser:
                             }
                         )
                 else:
-                    metadata = self._parse_connection_metadata(
+                    metadata_connection = self._parse_connection_metadata(
                         group[3], invalid_metadata
                     )
 
-                    if not metadata:
+                    if not metadata_connection:
                         invalid_metadata = True
                         print(f"{self.YELLOW}{'-' * 20}{self.RESET}")
                         continue
@@ -394,13 +403,14 @@ class Parser:
                         {
                             "zone_1": group[1],
                             "zone_2": group[2],
-                            "max_link_capacity": metadata,
+                            "max_link_capacity": metadata_connection,
                         }
                     )
         except Exception as e:
             print(
                 f"{self.RED}Unexpected error parsing file -> "
-                f"{type(e).__name__}: {e}{self.RESET}"
+                f"{type(e).__name__}: {e}{self.RESET}",
+                file=sys.stderr,
             )
             return False
 
@@ -408,3 +418,86 @@ class Parser:
             return False
 
         return True
+
+    def create_map_data(self) -> MapModel | None:
+        """
+        Instantiates Pydantic models to validate the parsed map data.
+
+        Converts the raw dictionary representations of hubs and
+        connections into strict Pydantic objects. It then builds
+        the global MapModel, handling validation errors gracefully
+        and printing formatted error messages to stderr.
+
+        Returns:
+            MapModel | None: The validated global map instance, or
+            None if any structural or validation errors occur.
+        """
+
+        if not self.format_data_for_pydantic():
+            return None
+
+        try:
+
+            hub_list: List[HubModel] = []
+            connection_list: List[ConnectionModel] = []
+
+            for hub in self.format_map["hub"]:
+                hub_list.append(
+                    HubModel(
+                        name=hub["name"],
+                        x=hub["x"],
+                        y=hub["y"],
+                        zone=hub["zone"],
+                        color=hub["color"],
+                        max_drones=hub["max_drones"],
+                    )
+                )
+
+            for connection in self.format_map["connection"]:
+                connection_list.append(
+                    ConnectionModel(
+                        zone_1=connection["zone_1"],
+                        zone_2=connection["zone_2"],
+                        max_link_capacity=connection["max_link_capacity"],
+                    )
+                )
+
+            map = MapModel(
+                nb_drones=self.format_map["nb_drones"],
+                start_hub=self.format_map["start_hub"],
+                end_hub=self.format_map["end_hub"],
+                hubs=hub_list,
+                connections=connection_list,
+            )
+
+            return map
+
+        except ValidationError as e:
+            err = e.errors()[0]
+
+            print(
+                f"\n{self.RED}{self.BOLD}=== ❌ PARSING ERRORS IN "
+                f"'{self.file_path.name}' ==={self.RESET}",
+                file=sys.stderr,
+            )
+
+            if err["loc"]:
+                print(
+                    f"{self.RED}{self.BOLD}{err['msg']}{self.RESET}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    err["msg"].replace("Value error, ", ""),
+                    file=sys.stderr,
+                )
+
+            return None
+
+        except Exception as e:
+            print(
+                f"{self.RED}Unexpected error parsing file -> "
+                f"{type(e).__name__}: {e}{self.RESET}",
+                file=sys.stderr,
+            )
+            return None
