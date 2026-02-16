@@ -1,5 +1,6 @@
 from typing import List
 from pydantic import BaseModel, Field, model_validator
+from .colors import Color
 
 
 class HubModel(BaseModel):
@@ -28,6 +29,7 @@ class HubModel(BaseModel):
     def validate_hub_model(self) -> "HubModel":
         """
         Validates the hub's operational zone classification.
+        Validates the color
         Raises:
             ValueError: If the 'zone' value is not allowed.
         """
@@ -38,6 +40,7 @@ class HubModel(BaseModel):
         RESET = "\033[0m"
 
         valid_zones = ["normal", "blocked", "restricted", "priority"]
+        color = Color()
 
         if self.zone not in valid_zones:
             err = (
@@ -47,8 +50,8 @@ class HubModel(BaseModel):
             raise ValueError(
                 f"\n{RED}{BOLD} • {RESET}{YELLOW}{err}" f"{RESET}"
             )
-
-        self.color = None
+        if self.color not in color.c:
+            self.color = None
 
         return self
 

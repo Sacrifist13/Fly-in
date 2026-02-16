@@ -1,4 +1,4 @@
-PYTHON_CMD  := uv run python3 -m src
+PYTHON_CMD  := uv run python3 main.py
 
 BOLD   := \033[1m
 RESET  := \033[0m
