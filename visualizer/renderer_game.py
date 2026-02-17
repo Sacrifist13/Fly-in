@@ -1,6 +1,6 @@
 import pygame
 from typing import Tuple, List
-from src.parser import Parser
+from src.models import MapModel
 from src.colors import Color
 
 
@@ -63,14 +63,13 @@ class Renderer:
     of the network.
     """
 
-    def __init__(self, map_config: str):
+    def __init__(self, map_config: MapModel):
         """
         Initializes the rendering environment, loads the spatial config,
         and sets the camera to the origin point.
         """
 
-        p = Parser(map_config)
-        self.map = p.create_map_data()
+        self.map = map_config
         self.colors = Color()
         self.camera_x: int = 0
         self.camera_y: int = 0

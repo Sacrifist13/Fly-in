@@ -1,4 +1,4 @@
-PYTHON_CMD  := uv run python3 main.py
+PYTHON_CMD  := uv run python3 main.py maps/challenger/01_the_impossible_dream.txt
 
 BOLD   := \033[1m
 RESET  := \033[0m
