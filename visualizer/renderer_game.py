@@ -5,6 +5,19 @@ from src.colors import Color
 
 
 class Hub:
+    """
+    Represents a physical node on the map.
+
+    Args:
+        capacity (int): Maximum drone hosting capacity.
+        name (str): Identifier name of the station.
+        zone (str): Geographical zone the hub belongs to.
+        x (int): Spatial X coordinate on the map.
+        y (int): Spatial Y coordinate on the map.
+        color (Tuple): RGB color code for rendering.
+        drones (int, optional): Number of currently stationed drones.
+    """
+
     def __init__(
         self,
         capacity: int,
@@ -25,6 +38,16 @@ class Hub:
 
 
 class Connection:
+    """
+    Represents a transit route between two hubs.
+
+    Args:
+        zone_1 (str): Name of the first connected hub.
+        zone_2 (str): Name of the second connected hub.
+        capacity (int): Maximum limit of drones in transit.
+        drones (int, optional): Number of drones currently in flight.
+    """
+
     def __init__(
         self, zone_1: str, zone_2: str, capacity: int, drones: int = 0
     ) -> None:
@@ -35,7 +58,17 @@ class Connection:
 
 
 class Renderer:
+    """
+    Main graphics engine managing the interactive spatial display
+    of the network.
+    """
+
     def __init__(self, map_config: str):
+        """
+        Initializes the rendering environment, loads the spatial config,
+        and sets the camera to the origin point.
+        """
+
         p = Parser(map_config)
         self.map = p.create_map_data()
         self.colors = Color()
@@ -44,6 +77,11 @@ class Renderer:
         self.zoom: float = 0.5
 
     def init_datas(self, screen: pygame.Surface) -> None:
+        """
+        Constructs graphical instances (Hubs and Connections) from raw
+        data and finalizes the optimization of visual resources.
+        """
+
         self.screen = screen
         self.font = pygame.font.SysFont("arial", 16)
         self.hubs: List[Hub] = []
@@ -62,7 +100,7 @@ class Renderer:
                 color=(
                     self.colors.c[start_hub.color]["rgb"]
                     if start_hub.color
-                    else self.colors.c_zones[start_hub.zone]
+                    else self.colors.c["darkdarkgray"]["rgb"]
                 ),
                 drones=self.map.nb_drones,
             )
@@ -78,7 +116,7 @@ class Renderer:
                 color=(
                     self.colors.c[end_hub.color]["rgb"]
                     if end_hub.color
-                    else self.colors.c_zones[end_hub.zone]["rgb"]
+                    else self.colors.c["darkdarkgray"]["rgb"]
                 ),
             )
         )
@@ -94,7 +132,7 @@ class Renderer:
                     color=(
                         self.colors.c[hub.color]["rgb"]
                         if hub.color
-                        else self.colors.c_zones[hub.zone]["rgb"]
+                        else self.colors.c["darkdarkgray"]["rgb"]
                     ),
                 )
             )
@@ -108,7 +146,15 @@ class Renderer:
                 )
             )
 
+        if self.icon_drone is not None:
+            self.icon_drone = self.icon_drone.convert_alpha()
+
     def output_info(self, obj: Hub | Connection | None) -> None:
+        """
+        Dynamically generates and sizes the statistics display panel
+        when hovering over a map element.
+        """
+
         if not obj:
             return
 
@@ -129,9 +175,6 @@ class Renderer:
                     self.colors.c["hover"]["rgb"],
                 ).get_width()
                 return size_1 if size_1 > size_2 else size_2
-
-        x = 10
-        y = 10
 
         padding_x = 10
         padding_y = 10
@@ -198,6 +241,11 @@ class Renderer:
         self.screen.blit(container, (20, 20))
 
     def is_mouse_over_hubs(self) -> Hub | None:
+        """
+        Calculates the Euclidean distance from the pointer to detect
+        hub hovering, accounting for the current zoom level.
+        """
+
         position = pygame.mouse.get_pos()
         mouse_x, mouse_y = position
 
@@ -207,7 +255,7 @@ class Renderer:
         for hub in self.hubs:
             x = int((hub.x * 100 - self.camera_x) * self.zoom + center_x)
             y = int((hub.y * 100 - self.camera_y) * self.zoom + center_y)
-            radius = 10 * self.zoom
+            radius = 20 * self.zoom
 
             gap_x = mouse_x - x
             gap_y = mouse_y - y
@@ -219,6 +267,11 @@ class Renderer:
         return None
 
     def is_mouse_over_connections(self, hover_hubs: bool) -> Connection | None:
+        """
+        Projects mouse coordinates onto link segments to detect if a
+        route is currently being hovered.
+        """
+
         if hover_hubs:
             return None
 
@@ -272,6 +325,10 @@ class Renderer:
         return None
 
     def draw_hubs(self, hover: Hub | None) -> None:
+        """
+        Renders network nodes, manages their spatial highlighting, and
+        overlays the drone presence visual indicator.
+        """
 
         center_x = self.screen.get_width() / 2
         center_y = self.screen.get_height() / 2
@@ -279,7 +336,7 @@ class Renderer:
         for hub in self.hubs:
             x = int((hub.x * 100 - self.camera_x) * self.zoom + center_x)
             y = int((hub.y * 100 - self.camera_y) * self.zoom + center_y)
-            radius = 10 * self.zoom
+            radius = 20 * self.zoom
 
             if hover and hover == hub:
                 pygame.draw.circle(
@@ -290,7 +347,22 @@ class Renderer:
                 )
             pygame.draw.circle(self.screen, hub.color, (x, y), radius)
 
+            if self.icon_drone and hub.drones > 0 and self.zoom > 0.6:
+                width = 30 * self.zoom
+                height = 30 * self.zoom
+
+                drone_img = pygame.transform.scale(
+                    self.icon_drone, (width, height)
+                )
+                self.screen.blit(
+                    drone_img, (x - (15 * self.zoom), y - (15 * self.zoom))
+                )
+
     def draw_connection(self, hover: Connection | None) -> None:
+        """
+        Draws the network infrastructure. Inactive lines are grayed
+        out, while used or hovered routes are highlighted.
+        """
 
         center_x = self.screen.get_width() / 2
         center_y = self.screen.get_height() / 2
@@ -328,13 +400,23 @@ class Renderer:
                     )
                 pygame.draw.line(
                     self.screen,
-                    (0, 0, 0),
+                    (
+                        self.colors.c["darkdarkgray"]["rgb"]
+                        if connection.drones <= 0
+                        else (0, 0, 0)
+                    ),
                     (x1, y1),
                     (x2, y2),
                     3 if self.zoom > 1 else 2,
                 )
 
     def draw(self) -> None:
+        """
+        Orchestrates the complete rendering pipeline for a single frame.
+        Handles hover detection, draws connections and hubs, and displays
+        contextual information tooltips.
+        """
+
         hover_hub = self.is_mouse_over_hubs()
         hover_connection = self.is_mouse_over_connections(
             True if hover_hub else False
@@ -347,6 +429,11 @@ class Renderer:
         self.output_info(hover_hub if hover_hub else hover_connection)
 
     def manage_events(self, events: List) -> bool:
+        """
+        Intercepts user actions including window closure, mouse wheel
+        zoom levels, and drag-and-drop camera panning.
+        """
+
         for event in events:
             if event.type == pygame.QUIT:
                 return False
@@ -362,17 +449,29 @@ class Renderer:
         return True
 
     def run(self) -> None:
+        """
+        Starts the main engine loop at 60 FPS and securely loads the
+        interface icons.
+        """
+
         if not self.map:
             return
+
+        self.icon_drone = None
 
         pygame.init()
 
         try:
-            icon = pygame.image.load("visualizer/drone.png")
-            pygame.display.set_icon(icon)
+            self.icon = pygame.image.load("visualizer/img/logo.png")
+            self.icon_drone = pygame.image.load("visualizer/img/drone.png")
+            pygame.display.set_icon(self.icon)
 
         except Exception:
-            pass
+            print(
+                f"{self.colors.c['red']['ansi']}[WARNING] Visualizer assets "
+                "not found,"
+                f" proceeding with default icons.{self.colors.c['reset']}"
+            )
 
         clock = pygame.time.Clock()
 
