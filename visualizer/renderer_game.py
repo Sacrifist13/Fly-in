@@ -139,7 +139,7 @@ class Renderer:
         value_column_x = 90
 
         if isinstance(obj, Hub):
-            width = 240
+            width = get_min_width(obj) + 80
             height = 140
             title = "- HUB -"
             output_text = [
@@ -150,7 +150,7 @@ class Renderer:
             ]
 
         else:
-            width = 240
+            width = get_min_width(obj) + 80
             height = 120
             title = "- CONNECTION -"
             output_text = [
@@ -366,6 +366,13 @@ class Renderer:
             return
 
         pygame.init()
+
+        try:
+            icon = pygame.image.load("visualizer/drone.png")
+            pygame.display.set_icon(icon)
+
+        except Exception:
+            pass
 
         clock = pygame.time.Clock()
 
