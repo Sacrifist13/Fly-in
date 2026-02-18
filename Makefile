@@ -24,13 +24,13 @@ debug:
 
 clean:
 	@echo "$(BOLD)🗑️  Cleaning up build artifacts and cache...$(RESET)"
-	rm -rf .mypy_cache src/__pycache__ visualizer/__pycache__
+	rm -rf .mypy_cache srcs/visualizer/__pycache__ srcs/parsing/__pycache__
 	@echo "\n$(BOLD)$(GREEN)🧹 Workspace is clean.$(RESET)"
 
 lint:
 	@echo "$(BOLD)🔎 Running static code analysis (src only + silent imports)...$(RESET)"
 	flake8 --exclude=.venv,llm_sdk/__init__.py
-	mypy src --follow-imports=silent --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	mypy srcs --follow-imports=silent --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
 	@echo "$(BOLD)🔎 Running static code analysis (strict option)...$(RESET)"

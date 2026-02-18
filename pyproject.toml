@@ -8,7 +8,7 @@ dependencies = [
     "mypy>=1.19.1",
     "pydantic>=2.12.5",
     "pygame>=2.6.1",
-    "textual>=7.5.0",
+    "rich>=14.3.2",
 ]
 
 [tool.mypy]

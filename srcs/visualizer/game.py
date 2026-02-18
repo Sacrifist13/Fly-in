@@ -1,0 +1,765 @@
+import pygame
+from typing import Tuple, List
+from srcs.parsing.models import MapModel
+from srcs.parsing.colors import Color
+from rich.console import Console
+from rich.live import Live
+from rich.layout import Layout
+from rich.panel import Panel
+from rich.table import Table, box
+from rich.columns import Columns
+from rich.align import Align
+
+
+class Hub:
+    """
+    Represents a physical node on the map.
+
+    Args:
+        capacity (int): Maximum drone hosting capacity.
+        name (str): Identifier name of the station.
+        zone (str): Geographical zone the hub belongs to.
+        x (int): Spatial X coordinate on the map.
+        y (int): Spatial Y coordinate on the map.
+        color (Tuple): RGB color code for rendering.
+        drones (int, optional): Number of currently stationed drones.
+    """
+
+    def __init__(
+        self,
+        capacity: int,
+        name: str,
+        zone: str,
+        x: int,
+        y: int,
+        color: Tuple,
+        color_panel: str,
+        drones: int = 0,
+    ) -> None:
+        self.drones = drones
+        self.capacity = capacity
+        self.name = name
+        self.zone = zone
+        self.x = x
+        self.y = y
+        self.color = color
+        self.color_panel = color_panel
+
+
+class Connection:
+    """
+    Represents a transit route between two hubs.
+
+    Args:
+        zone_1 (str): Name of the first connected hub.
+        zone_2 (str): Name of the second connected hub.
+        capacity (int): Maximum limit of drones in transit.
+        drones (int, optional): Number of drones currently in flight.
+    """
+
+    def __init__(
+        self, zone_1: str, zone_2: str, capacity: int, drones: int = 0
+    ) -> None:
+        self.zone_1 = zone_1
+        self.zone_2 = zone_2
+        self.drones = drones
+        self.capacity = capacity
+
+
+class Renderer:
+    """
+    Main graphics engine managing the interactive spatial display
+    of the network.
+    """
+
+    def __init__(self, map_config: MapModel):
+        """
+        Initializes the rendering environment, loads the spatial config,
+        and sets the camera to the origin point.
+        """
+
+        self.map = map_config
+        self.colors = Color()
+        self.camera_x: int = 0
+        self.camera_y: int = 0
+        self.zoom: float = 0.5
+
+    def _init_datas(self, screen: pygame.Surface) -> None:
+        """
+        Constructs graphical instances (Hubs and Connections) from raw
+        data and finalizes the optimization of visual resources.
+        """
+
+        self.screen = screen
+        self.font = pygame.font.SysFont("arial", 16)
+        self.hubs: List[Hub] = []
+        self.connections: List[Connection] = []
+
+        start_hub = self.map.start_hub
+        end_hub = self.map.end_hub
+
+        self.hubs.append(
+            Hub(
+                capacity=start_hub.max_drones,
+                name=start_hub.name,
+                zone=start_hub.zone,
+                x=start_hub.x,
+                y=start_hub.y,
+                color=(
+                    self.colors.c[start_hub.color]["rgb"]
+                    if start_hub.color
+                    else self.colors.c["darkdarkgray"]["rgb"]
+                ),
+                color_panel=(
+                    self.colors.c[start_hub.color]["hex"]
+                    if start_hub.color
+                    else self.colors.c["darkdarkgray"]["hex"]
+                ),
+                drones=self.map.nb_drones,
+            )
+        )
+
+        self.hubs.append(
+            Hub(
+                capacity=end_hub.max_drones,
+                name=end_hub.name,
+                zone=end_hub.zone,
+                x=end_hub.x,
+                y=end_hub.y,
+                color=(
+                    self.colors.c[end_hub.color]["rgb"]
+                    if end_hub.color
+                    else self.colors.c["darkdarkgray"]["rgb"]
+                ),
+                color_panel=(
+                    self.colors.c[end_hub.color]["hex"]
+                    if end_hub.color
+                    else self.colors.c["darkdarkgray"]["hex"]
+                ),
+            )
+        )
+
+        for hub in self.map.hubs:
+            self.hubs.append(
+                Hub(
+                    capacity=hub.max_drones,
+                    name=hub.name,
+                    zone=hub.zone,
+                    x=hub.x,
+                    y=hub.y,
+                    color=(
+                        self.colors.c[hub.color]["rgb"]
+                        if hub.color
+                        else self.colors.c["darkdarkgray"]["rgb"]
+                    ),
+                    color_panel=(
+                        self.colors.c[hub.color]["hex"]
+                        if hub.color and hub.color != "black"
+                        else self.colors.c["darkdarkgray"]["hex"]
+                    ),
+                )
+            )
+
+        for c in self.map.connections:
+            self.connections.append(
+                Connection(
+                    zone_1=c.zone_1,
+                    zone_2=c.zone_2,
+                    capacity=c.max_link_capacity,
+                )
+            )
+
+        if self.icon_drone is not None:
+            self.icon_drone = self.icon_drone.convert_alpha()
+
+    def _calculate_hub_card(self) -> int:
+        console = Console()
+
+        width, height = console.size
+
+        CARD_HEIGHT = 9
+        CARD_WIDTH = 30
+
+        available_height = height - 8
+
+        rows = max(1, available_height // CARD_HEIGHT)
+
+        left_panel_width = int(width * 0.5)
+        cols = max(1, left_panel_width // CARD_WIDTH)
+
+        return rows * cols
+
+    def _calculate_connection_card(self) -> int:
+        console = Console()
+
+        width, height = console.size
+
+        CARD_HEIGHT = 4
+        CARD_WIDTH = 30
+
+        available_height = height - 8
+
+        rows = max(1, available_height // CARD_HEIGHT)
+
+        left_panel_width = int(width * 0.5)
+        cols = max(1, left_panel_width // CARD_WIDTH)
+
+        return rows * cols
+
+    def _generate_hub_grid(self, hub_offset: int) -> Columns:
+
+        hub_panels = []
+        max_panels = self._calculate_hub_card()
+
+        hub_cards = self.hubs[hub_offset : max_panels + hub_offset]
+
+        for hub in hub_cards:
+            tab = Table(box=box.ROUNDED, show_header=False, expand=True)
+            tab.add_column("Key", style="dim")
+            tab.add_column("Value", justify="right")
+            tab.add_row("Zone", hub.zone)
+            tab.add_row("Coord", f"({hub.x}, {hub.y})")
+            status_color = "green" if hub.drones < hub.capacity else "red"
+            tab.add_row(
+                "Drones",
+                f"[{status_color}]{hub.drones}/{hub.capacity}[/]",
+            )
+            panel = Panel(
+                tab,
+                title=f"[bold]{hub.name}[/]",
+                border_style=hub.color_panel,
+                expand=False,
+            )
+            hub_panels.append(panel)
+
+        return Columns(
+            hub_panels, expand=True, equal=True, align="center", padding=2
+        )
+
+    def _generate_connection_grid(self, connection_offset: int) -> Columns:
+        connection_panels = []
+        max_panels = self._calculate_connection_card()
+
+        connection_cards = self.connections[
+            connection_offset : max_panels + connection_offset
+        ]
+
+        for connection in connection_cards:
+            tab = Table(box=box.ROUNDED, show_header=False, expand=True)
+            status_color = (
+                "green" if connection.drones < connection.capacity else "red"
+            )
+            tab.add_row(
+                "Drones",
+                f"[{status_color}]{connection.drones}/"
+                f"{connection.capacity}[/]",
+            )
+
+            zone_1_color = next(
+                hub.color_panel
+                for hub in self.hubs
+                if hub.name == connection.zone_1
+            )
+            zone_2_color = next(
+                hub.color_panel
+                for hub in self.hubs
+                if hub.name == connection.zone_2
+            )
+
+            border_color = (
+                self.colors.c["darkdarkgray"]["hex"]
+                if connection.drones < connection.capacity
+                else self.colors.c["hover"]["hex"]
+            )
+
+            panel = Panel(
+                tab,
+                title=(f"[bold {zone_1_color}]{connection.zone_1}[/]"),
+                subtitle=f"[bold {zone_2_color}]{connection.zone_2}[/]",
+                border_style=border_color,
+                expand=False,
+            )
+            connection_panels.append(panel)
+
+        return Columns(
+            connection_panels,
+            expand=True,
+            equal=True,
+            align="center",
+            padding=2,
+        )
+
+    def _create_layout(self, turn_count: int, offset: int) -> Layout:
+        layout = Layout()
+        layout.split_column(
+            Layout(name="top", ratio=1), Layout(name="bottom", ratio=9)
+        )
+
+        turn = Align(f"[bold]{turn_count}", align="center")
+        layout["top"].update(
+            Panel(
+                turn,
+                title="FLY-IN",
+                border_style=self.colors.c["hover"]["hex"],
+            )
+        )
+
+        layout["bottom"].split_row(Layout(name="left"), Layout(name="right"))
+
+        layout["left"].update(
+            Panel(
+                self._generate_hub_grid(offset),
+                title="HUB STATUS",
+                border_style=self.colors.c["hover"]["hex"],
+            )
+        )
+
+        layout["right"].update(
+            Panel(
+                self._generate_connection_grid(offset),
+                title="CONNECTION_STATUS",
+                border_style=self.colors.c["hover"]["hex"],
+            )
+        )
+
+        return layout
+
+    def _output_info(self, obj: Hub | Connection | None) -> None:
+        """
+        Dynamically generates and sizes the statistics display panel
+        when hovering over a map element.
+        """
+
+        if not obj:
+            return
+
+        def get_min_width(obj: Hub | Connection):
+            if isinstance(obj, Hub):
+                return self.font.render(
+                    f"• Name: {obj.name}", True, self.colors.c["hover"]["rgb"]
+                ).get_width()
+            else:
+                size_1 = self.font.render(
+                    f"• Zone 1: {obj.zone_1}",
+                    True,
+                    self.colors.c["hover"]["rgb"],
+                ).get_width()
+                size_2 = self.font.render(
+                    f"• Zone 2: {obj.zone_2}",
+                    True,
+                    self.colors.c["hover"]["rgb"],
+                ).get_width()
+                return size_1 if size_1 > size_2 else size_2
+
+        padding_x = 10
+        padding_y = 10
+        line_height = 25
+        value_column_x = 90
+
+        if isinstance(obj, Hub):
+            width = get_min_width(obj) + 80
+            height = 140
+            title = "- HUB -"
+            output_text = [
+                ("Name", str(obj.name)),
+                ("Drones", f"{obj.drones}/{obj.capacity}"),
+                ("Zone", str(obj.zone)),
+                ("Coord", f"({obj.x}, {obj.y})"),
+            ]
+
+        else:
+            width = get_min_width(obj) + 80
+            height = 120
+            title = "- CONNECTION -"
+            output_text = [
+                ("Zone 1", str(obj.zone_1)),
+                ("Zone 2", str(obj.zone_2)),
+                ("Drones", f"{obj.drones}/{obj.capacity}"),
+            ]
+
+        rect = (1, 1, width - 2, height - 2)
+        rect_hover = (0, 0, width, height)
+
+        container = pygame.Surface((width, height), pygame.SRCALPHA)
+
+        pygame.draw.rect(
+            container,
+            self.colors.c["hover"]["rgb"],
+            rect_hover,
+            width=2,
+            border_radius=5,
+        )
+        pygame.draw.rect(
+            container,
+            self.colors.c["darkdarkgray"]["rgb"],
+            rect,
+            border_radius=5,
+        )
+
+        t = self.font.render(title, True, self.colors.c["hover"]["rgb"])
+        container.blit(t, (padding_x, padding_y))
+        padding_y += 30
+
+        for label, value in output_text:
+            label_surf = self.font.render(
+                f"• {label}:", True, self.colors.c["white"]["rgb"]
+            )
+            container.blit(label_surf, (padding_x, padding_y))
+
+            value_surf = self.font.render(
+                value, True, self.colors.c["hover"]["rgb"]
+            )
+            container.blit(value_surf, (padding_x + value_column_x, padding_y))
+
+            padding_y += line_height
+
+        self.screen.blit(container, (20, 20))
+
+    def output_commands(self) -> None:
+
+        width = 280
+        height = 130
+        padding_x = 10
+        padding_y = 10
+
+        container = pygame.Surface((width, height), pygame.SRCALPHA)
+
+        rect = (1, 1, width - 2, height - 2)
+        rect_hover = (0, 0, width, height)
+
+        pygame.draw.rect(
+            container,
+            self.colors.c["hover"]["rgb"],
+            rect_hover,
+            width=2,
+            border_radius=5,
+        )
+        pygame.draw.rect(
+            container,
+            self.colors.c["darkdarkgray"]["rgb"],
+            rect,
+            border_radius=5,
+        )
+
+        title = self.font.render(
+            "COMMANDS", True, self.colors.c["hover"]["rgb"]
+        )
+        output_text = [
+            ("Scroll Hubs", "UP / DOWN"),
+            ("Scroll Connections", "LEFT / RIGHT"),
+            ("Next Turn", "SPACE"),
+            ("Zoom & Pan", "MOUSE"),
+        ]
+
+        container.blit(title, ((width - title.get_width()) / 2, padding_y))
+        padding_y += 30
+
+        for label, value in output_text:
+            label_surf = self.font.render(
+                f"• {label}:", True, self.colors.c["white"]["rgb"]
+            )
+            container.blit(label_surf, (padding_x, padding_y))
+
+            value_surf = self.font.render(
+                value, True, self.colors.c["hover"]["rgb"]
+            )
+            container.blit(value_surf, (padding_x + 160, padding_y))
+
+            padding_y += 20
+
+        self.screen.blit(
+            container,
+            (
+                self.screen.get_width() - width - 10,
+                self.screen.get_height() - height - 10,
+            ),
+        )
+
+    def _is_mouse_over_hubs(self) -> Hub | None:
+        """
+        Calculates the Euclidean distance from the pointer to detect
+        hub hovering, accounting for the current zoom level.
+        """
+
+        position = pygame.mouse.get_pos()
+        mouse_x, mouse_y = position
+
+        center_x = self.screen.get_width() / 2
+        center_y = self.screen.get_height() / 2
+
+        for hub in self.hubs:
+            x = int((hub.x * 100 - self.camera_x) * self.zoom + center_x)
+            y = int((hub.y * 100 - self.camera_y) * self.zoom + center_y)
+            radius = 20 * self.zoom
+
+            gap_x = mouse_x - x
+            gap_y = mouse_y - y
+
+            square_gap = pow(gap_x, 2) + pow(gap_y, 2)
+
+            if square_gap <= pow(radius, 2):
+                return hub
+        return None
+
+    def _is_mouse_over_connections(
+        self, hover_hubs: bool
+    ) -> Connection | None:
+        """
+        Projects mouse coordinates onto link segments to detect if a
+        route is currently being hovered.
+        """
+
+        if hover_hubs:
+            return None
+
+        position = pygame.mouse.get_pos()
+        mouse_x, mouse_y = position
+
+        center_x = self.screen.get_width() / 2
+        center_y = self.screen.get_height() / 2
+
+        for connection in self.connections:
+            zone_1 = next(
+                (hub for hub in self.hubs if hub.name == connection.zone_1),
+                None,
+            )
+            zone_2 = next(
+                (hub for hub in self.hubs if hub.name == connection.zone_2),
+                None,
+            )
+
+            if zone_1 and zone_2:
+                x1 = int(
+                    (zone_1.x * 100 - self.camera_x) * self.zoom + center_x
+                )
+                y1 = int(
+                    (zone_1.y * 100 - self.camera_y) * self.zoom + center_y
+                )
+                x2 = int(
+                    (zone_2.x * 100 - self.camera_x) * self.zoom + center_x
+                )
+                y2 = int(
+                    (zone_2.y * 100 - self.camera_y) * self.zoom + center_y
+                )
+
+                segment = pow((x2 - x1), 2) + pow((y2 - y1), 2)
+                t = (
+                    ((mouse_x - x1) * (x2 - x1)) + ((mouse_y - y1) * (y2 - y1))
+                ) / segment
+
+                if t > 1:
+                    t = 1
+                elif t < 0:
+                    t = 0
+
+                cx = x1 + t * (x2 - x1)
+                cy = y1 + t * (y2 - y1)
+
+                gap = pow((mouse_x - cx), 2) + pow((mouse_y - cy), 2)
+
+                if gap <= 20:
+                    return connection
+        return None
+
+    def _draw_hubs(self, hover: Hub | None) -> None:
+        """
+        Renders network nodes, manages their spatial highlighting, and
+        overlays the drone presence visual indicator.
+        """
+
+        center_x = self.screen.get_width() / 2
+        center_y = self.screen.get_height() / 2
+
+        for hub in self.hubs:
+            x = int((hub.x * 100 - self.camera_x) * self.zoom + center_x)
+            y = int((hub.y * 100 - self.camera_y) * self.zoom + center_y)
+            radius = 20 * self.zoom
+
+            if hover and hover == hub:
+                pygame.draw.circle(
+                    self.screen,
+                    self.colors.c["hover"]["rgb"],
+                    (x, y),
+                    radius * 1.2,
+                )
+            pygame.draw.circle(self.screen, hub.color, (x, y), radius)
+
+            if self.icon_drone and hub.drones > 0 and self.zoom > 0.6:
+                width = 30 * self.zoom
+                height = 30 * self.zoom
+
+                drone_img = pygame.transform.scale(
+                    self.icon_drone, (width, height)
+                )
+                self.screen.blit(
+                    drone_img, (x - (15 * self.zoom), y - (15 * self.zoom))
+                )
+
+    def _draw_connection(self, hover: Connection | None) -> None:
+        """
+        Draws the network infrastructure. Inactive lines are grayed
+        out, while used or hovered routes are highlighted.
+        """
+
+        center_x = self.screen.get_width() / 2
+        center_y = self.screen.get_height() / 2
+
+        for connection in self.connections:
+            zone_1 = next(
+                (hub for hub in self.hubs if hub.name == connection.zone_1),
+                None,
+            )
+            zone_2 = next(
+                (hub for hub in self.hubs if hub.name == connection.zone_2),
+                None,
+            )
+
+            if zone_1 and zone_2:
+                x1 = int(
+                    (zone_1.x * 100 - self.camera_x) * self.zoom + center_x
+                )
+                y1 = int(
+                    (zone_1.y * 100 - self.camera_y) * self.zoom + center_y
+                )
+                x2 = int(
+                    (zone_2.x * 100 - self.camera_x) * self.zoom + center_x
+                )
+                y2 = int(
+                    (zone_2.y * 100 - self.camera_y) * self.zoom + center_y
+                )
+                if hover and hover == connection:
+                    pygame.draw.line(
+                        self.screen,
+                        self.colors.c["hover"]["rgb"],
+                        (x1, y1),
+                        (x2, y2),
+                        5,
+                    )
+                pygame.draw.line(
+                    self.screen,
+                    (
+                        self.colors.c["darkdarkgray"]["rgb"]
+                        if connection.drones <= 0
+                        else (0, 0, 0)
+                    ),
+                    (x1, y1),
+                    (x2, y2),
+                    3 if self.zoom > 1 else 2,
+                )
+
+    def _draw(self) -> None:
+        """
+        Orchestrates the complete rendering pipeline for a single frame.
+        Handles hover detection, draws connections and hubs, and displays
+        contextual information tooltips.
+        """
+
+        hover_hub = self._is_mouse_over_hubs()
+        hover_connection = self._is_mouse_over_connections(
+            True if hover_hub else False
+        )
+
+        self._draw_connection(hover_connection)
+
+        self._draw_hubs(hover_hub)
+
+        self._output_info(hover_hub if hover_hub else hover_connection)
+
+        self.output_commands()
+
+    def _manage_events(self, events: List) -> bool:
+        """
+        Intercepts user actions including window closure, mouse wheel
+        zoom levels, and drag-and-drop camera panning.
+        """
+
+        for event in events:
+            if event.type == pygame.QUIT:
+                return False
+            if event.type == pygame.MOUSEWHEEL:
+                if event.y > 0:
+                    self.zoom += 0.1 if self.zoom < 2 else 0
+                else:
+                    self.zoom -= 0.1 if self.zoom > 0.3 else 0
+            if event.type == pygame.MOUSEMOTION:
+                if event.buttons[0]:
+                    self.camera_x -= event.rel[0] / self.zoom
+                    self.camera_y -= event.rel[1] / self.zoom
+        return True
+
+    def run(self) -> None:
+        """
+        Starts the main engine loop at 60 FPS and securely loads the
+        interface icons.
+        """
+
+        if not self.map:
+            return
+
+        self.icon_drone = None
+
+        pygame.init()
+
+        try:
+            self.icon = pygame.image.load("srcs/visualizer/img/logo.png")
+            self.icon_drone = pygame.image.load(
+                "srcs/visualizer/img/drone.png"
+            )
+            pygame.display.set_icon(self.icon)
+
+        except Exception:
+            print(
+                f"{self.colors.c['red']['ansi']}[WARNING] Visualizer assets "
+                "not found,"
+                f" proceeding with default icons.{self.colors.c['reset']}"
+            )
+
+        clock = pygame.time.Clock()
+
+        screen = pygame.display.set_mode((500, 500), pygame.RESIZABLE)
+
+        clock = pygame.time.Clock()
+
+        self._init_datas(screen)
+
+        turn = 0
+
+        hub_offset = 0
+        # connection_offset = 0
+
+        running = True
+
+        with Live(
+            self._create_layout(turn, hub_offset),
+            refresh_per_second=4,
+            screen=True,
+        ) as live:
+            while running:
+                clock.tick(60)
+                events = pygame.event.get()
+                if not self._manage_events(events):
+                    running = False
+                for event in events:
+                    if event.type == pygame.KEYDOWN:
+
+                        if event.key == pygame.K_DOWN:
+                            items_per_page = self._calculate_hub_card()
+                            if hub_offset + items_per_page < len(self.hubs):
+                                hub_offset += items_per_page
+                            else:
+                                hub_offset = len(self.hubs) - 1
+                            live.update(self._create_layout(turn, hub_offset))
+
+                        if event.key == pygame.K_UP:
+                            items_per_page = self._calculate_hub_card()
+                            if hub_offset - items_per_page >= 0:
+                                hub_offset -= items_per_page
+                            else:
+                                hub_offset = 0
+                            live.update(self._create_layout(turn, hub_offset))
+
+                screen.fill(self.colors.c["darkgray"]["rgb"])
+                self._draw()
+                pygame.display.flip()
+
+        pygame.quit()
