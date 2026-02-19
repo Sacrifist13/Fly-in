@@ -1,3 +1,6 @@
+from typing import Dict, Any
+
+
 class Color:
     def __init__(self) -> None:
         """
@@ -8,7 +11,7 @@ class Color:
         and Hexadecimal strings (Textual).
         """
 
-        self.c = {
+        self.c: Dict[str, Any] = {
             "red": {"ansi": "\033[91m", "rgb": (255, 0, 0), "hex": "#FF0000"},
             "green": {
                 "ansi": "\033[92m",

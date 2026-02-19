@@ -83,6 +83,10 @@ class Renderer:
         self.camera_x: int = 0
         self.camera_y: int = 0
         self.zoom: float = 0.5
+        self.turn = 0
+        self.hub_offset = 0
+        self.connection_offset = 0
+        self.icon_drone: pygame.Surface | None = None
 
     def _init_datas(self, screen: pygame.Surface) -> None:
         """
@@ -177,7 +181,7 @@ class Renderer:
 
         width, height = console.size
 
-        CARD_HEIGHT = 9
+        CARD_HEIGHT = 6
         CARD_WIDTH = 30
 
         available_height = height - 8
@@ -222,7 +226,7 @@ class Renderer:
             status_color = "green" if hub.drones < hub.capacity else "red"
             tab.add_row(
                 "Drones",
-                f"[{status_color}]{hub.drones}/{hub.capacity}[/]",
+                f"[bold {status_color}]{hub.drones}/{hub.capacity}[/]",
             )
             panel = Panel(
                 tab,
@@ -251,7 +255,7 @@ class Renderer:
             )
             tab.add_row(
                 "Drones",
-                f"[{status_color}]{connection.drones}/"
+                f"[bold {status_color}]{connection.drones}/"
                 f"{connection.capacity}[/]",
             )
 
@@ -289,13 +293,13 @@ class Renderer:
             padding=2,
         )
 
-    def _create_layout(self, turn_count: int, offset: int) -> Layout:
+    def _create_layout(self) -> Layout:
         layout = Layout()
         layout.split_column(
             Layout(name="top", ratio=1), Layout(name="bottom", ratio=9)
         )
 
-        turn = Align(f"[bold]{turn_count}", align="center")
+        turn = Align(f"[bold]{self.turn}", align="center", vertical="bottom")
         layout["top"].update(
             Panel(
                 turn,
@@ -308,7 +312,7 @@ class Renderer:
 
         layout["left"].update(
             Panel(
-                self._generate_hub_grid(offset),
+                self._generate_hub_grid(self.hub_offset),
                 title="HUB STATUS",
                 border_style=self.colors.c["hover"]["hex"],
             )
@@ -316,7 +320,7 @@ class Renderer:
 
         layout["right"].update(
             Panel(
-                self._generate_connection_grid(offset),
+                self._generate_connection_grid(self.connection_offset),
                 title="CONNECTION_STATUS",
                 border_style=self.colors.c["hover"]["hex"],
             )
@@ -333,7 +337,7 @@ class Renderer:
         if not obj:
             return
 
-        def get_min_width(obj: Hub | Connection):
+        def get_min_width(obj: Hub | Connection) -> int:
             if isinstance(obj, Hub):
                 return self.font.render(
                     f"• Name: {obj.name}", True, self.colors.c["hover"]["rgb"]
@@ -667,7 +671,7 @@ class Renderer:
 
         self.output_commands()
 
-    def _manage_events(self, events: List) -> bool:
+    def _manage_events(self, events: List, live: Live) -> bool:
         """
         Intercepts user actions including window closure, mouse wheel
         zoom levels, and drag-and-drop camera panning.
@@ -685,6 +689,45 @@ class Renderer:
                 if event.buttons[0]:
                     self.camera_x -= event.rel[0] / self.zoom
                     self.camera_y -= event.rel[1] / self.zoom
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_DOWN:
+                    items_per_page = self._calculate_hub_card()
+                    if self.hub_offset + items_per_page < len(self.hubs):
+                        self.hub_offset += items_per_page
+                    else:
+                        self.hub_offset = len(self.hubs) - 1
+                    live.update(self._create_layout())
+
+                if event.key == pygame.K_UP:
+                    items_per_page = self._calculate_hub_card()
+                    if self.hub_offset - items_per_page >= 0:
+                        self.hub_offset -= items_per_page
+                    else:
+                        self.hub_offset = 0
+                    live.update(self._create_layout())
+
+                if event.key == pygame.K_RIGHT:
+                    items_per_page = self._calculate_connection_card()
+                    if self.connection_offset + items_per_page < len(
+                        self.connections
+                    ):
+                        self.connection_offset += items_per_page
+                    else:
+                        self.connection_offset = len(self.connections) - 1
+                    live.update(self._create_layout())
+
+                if event.key == pygame.K_LEFT:
+                    items_per_page = self._calculate_connection_card()
+                    if self.connection_offset - items_per_page >= 0:
+                        self.connection_offset -= items_per_page
+                    else:
+                        self.connection_offset = 0
+                    live.update(self._create_layout())
+
+                if event.key == pygame.K_SPACE:
+                    self.turn += 1
+                    live.update(self._create_layout())
+
         return True
 
     def run(self) -> None:
@@ -693,15 +736,12 @@ class Renderer:
         interface icons.
         """
 
-        if not self.map:
-            return
-
-        self.icon_drone = None
-
         pygame.init()
 
         try:
-            self.icon = pygame.image.load("srcs/visualizer/img/logo.png")
+            self.icon: pygame.Surface = pygame.image.load(
+                "srcs/visualizer/img/logo.png"
+            )
             self.icon_drone = pygame.image.load(
                 "srcs/visualizer/img/drone.png"
             )
@@ -716,48 +756,24 @@ class Renderer:
 
         clock = pygame.time.Clock()
 
-        screen = pygame.display.set_mode((500, 500), pygame.RESIZABLE)
+        screen = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
 
         clock = pygame.time.Clock()
 
         self._init_datas(screen)
 
-        turn = 0
-
-        hub_offset = 0
-        # connection_offset = 0
-
         running = True
 
         with Live(
-            self._create_layout(turn, hub_offset),
+            self._create_layout(),
             refresh_per_second=4,
             screen=True,
         ) as live:
             while running:
                 clock.tick(60)
                 events = pygame.event.get()
-                if not self._manage_events(events):
+                if not self._manage_events(events, live):
                     running = False
-                for event in events:
-                    if event.type == pygame.KEYDOWN:
-
-                        if event.key == pygame.K_DOWN:
-                            items_per_page = self._calculate_hub_card()
-                            if hub_offset + items_per_page < len(self.hubs):
-                                hub_offset += items_per_page
-                            else:
-                                hub_offset = len(self.hubs) - 1
-                            live.update(self._create_layout(turn, hub_offset))
-
-                        if event.key == pygame.K_UP:
-                            items_per_page = self._calculate_hub_card()
-                            if hub_offset - items_per_page >= 0:
-                                hub_offset -= items_per_page
-                            else:
-                                hub_offset = 0
-                            live.update(self._create_layout(turn, hub_offset))
-
                 screen.fill(self.colors.c["darkgray"]["rgb"])
                 self._draw()
                 pygame.display.flip()

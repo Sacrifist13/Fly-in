@@ -24,7 +24,7 @@ debug:
 
 clean:
 	@echo "$(BOLD)🗑️  Cleaning up build artifacts and cache...$(RESET)"
-	rm -rf .mypy_cache srcs/visualizer/__pycache__ srcs/parsing/__pycache__
+	rm -rf .mypy_cache srcs/visualizer/__pycache__ srcs/parsing/__pycache__ srcs/__pycache__
 	@echo "\n$(BOLD)$(GREEN)🧹 Workspace is clean.$(RESET)"
 
 lint:

@@ -8,12 +8,14 @@ if __name__ == "__main__":
     argc = len(argv)
 
     if argc != 2:
-        sys.exit(1)
+        sys.exit(0)
 
     p = Parser(argv[1])
     map_config = p.create_map_data()
+
     if not map_config:
-        sys.exit(1)
+        sys.exit(0)
+
     game = Renderer(map_config)
 
     game.run()
