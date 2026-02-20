@@ -1,6 +1,7 @@
 import sys
 from srcs.visualizer.game import Renderer
 from srcs.parsing.parser import Parser
+from srcs.solver.solver import Solver
 
 
 if __name__ == "__main__":
@@ -19,3 +20,6 @@ if __name__ == "__main__":
     game = Renderer(map_config)
 
     game.run()
+
+    # solv = Solver(map_config)
+    # solv._generate_solution()

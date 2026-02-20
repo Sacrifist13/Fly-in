@@ -1,5 +1,5 @@
 import pygame
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 from srcs.parsing.models import MapModel
 from srcs.parsing.colors import Color
 from rich.console import Console
@@ -9,20 +9,28 @@ from rich.panel import Panel
 from rich.table import Table, box
 from rich.columns import Columns
 from rich.align import Align
+from srcs.solver.solver import Solver
+import json
 
 
 class Hub:
     """
-    Represents a physical node on the map.
+    Represents a physical node within the drone infrastructure network.
 
-    Args:
-        capacity (int): Maximum drone hosting capacity.
-        name (str): Identifier name of the station.
-        zone (str): Geographical zone the hub belongs to.
-        x (int): Spatial X coordinate on the map.
-        y (int): Spatial Y coordinate on the map.
-        color (Tuple): RGB color code for rendering.
-        drones (int, optional): Number of currently stationed drones.
+    This class serves as a data container and state tracker for a hub,
+    managing its spatial positioning, operational capacity, and visual
+    representation for both graphical (Pygame) and terminal (Rich) rendering.
+
+    Attributes:
+        drones (int): The current number of drones stationed at the hub.
+        capacity (int): The maximum hosting capacity of the hub.
+        name (str): Unique identifier for the hub.
+        zone (str): Geographical or operational zone classification.
+        x (int): Spatial X-coordinate on the global map.
+        y (int): Spatial Y-coordinate on the global map.
+        color (Tuple[int, int, int]): RGB color tuple used for Pygame
+        color_panel (str): Hexadecimal or named color string used for
+        rendering. Rich Terminal UI borders.
     """
 
     def __init__(
@@ -48,13 +56,19 @@ class Hub:
 
 class Connection:
     """
-    Represents a transit route between two hubs.
+    Represents a transit route linking two hubs within the network.
 
-    Args:
-        zone_1 (str): Name of the first connected hub.
-        zone_2 (str): Name of the second connected hub.
-        capacity (int): Maximum limit of drones in transit.
-        drones (int, optional): Number of drones currently in flight.
+    This class defines the infrastructure for drone movement between specific
+    zones, enforcing traffic constraints through capacity limits and tracking
+    real-time drone occupancy during the simulation.
+
+    Attributes:
+        zone_1 (str): Identifier of the origin or first connected hub.
+        zone_2 (str): Identifier of the destination or second connected hub.
+        drones (int): Current number of drones performing a transit
+            on this route.
+        capacity (int): Maximum drone traffic allowed concurrently
+            on this connection.
     """
 
     def __init__(
@@ -68,14 +82,38 @@ class Connection:
 
 class Renderer:
     """
-    Main graphics engine managing the interactive spatial display
-    of the network.
+    The central visualization engine responsible for multi-interface
+    synchronization.
+
+    This engine orchestrates a dual-display environment: a dynamic spatial map
+    rendered via Pygame and a real-time diagnostic dashboard rendered via Rich
+    Terminal. It manages camera transformations (zoom/pan), event handling,
+    and data projection from the MapModel into visual components.
+
+    Attributes:
+        map (MapModel): The validated topological data source.
+        colors (Color): Palette provider for consistent UI styling.
+        camera_x (int): Horizontal offset for the spatial map view.
+        camera_y (int): Vertical offset for the spatial map view.
+        zoom (float): Current magnification level of the map.
+        turn (int): Simulation step counter.
+        hub_offset (int): Vertical scroll position for the Hub Terminal UI.
+        connection_offset (int): Vertical scroll position for the Connection
+        Terminal UI.
+        icon_drone (pygame.Surface | None): Optimized graphical asset for
+        drone display. screen (pygame.Surface): The main Pygame display
+        surface. hubs (List[Hub]): Initialized graphical hub instances.
+        connections (List[Connection]): Initialized graphical connection
+        instances.
     """
 
     def __init__(self, map_config: MapModel):
         """
-        Initializes the rendering environment, loads the spatial config,
-        and sets the camera to the origin point.
+        Initializes the renderer with map data and default view settings.
+
+        Args:
+            map_config: An instance of MapModel containing the validated
+            network.
         """
 
         self.map = map_config
@@ -90,8 +128,16 @@ class Renderer:
 
     def _init_datas(self, screen: pygame.Surface) -> None:
         """
-        Constructs graphical instances (Hubs and Connections) from raw
-        data and finalizes the optimization of visual resources.
+        Initialize the graphical components and simulation data structures.
+
+        This method maps raw map data into Hub and Connection objects for
+        rendering. It configures fonts, determines color schemes for
+        nodes based on their attributes, and optimizes the drone icon
+        surface for alpha transparency.
+
+        Args:
+            screen (pygame.Surface): The main Pygame surface used for
+                displaying the simulation.
         """
 
         self.screen = screen
@@ -101,6 +147,42 @@ class Renderer:
 
         start_hub = self.map.start_hub
         end_hub = self.map.end_hub
+
+        solver = Solver(self.map)
+
+        self.solutions: Dict[str, List[Tuple]] = solver._generate_solution()
+
+        nb_turn = set()
+
+        for value in self.solutions.values():
+            for step in value:
+                nb_turn.add(step[1])
+
+        self.max_turn = max(nb_turn)
+
+        self.timeline: Dict[int, Dict[str, List[str]]] = {}
+
+        for i in range(1, self.max_turn + 1):
+            self.timeline[i] = {}
+
+        for key, value in self.solutions.items():
+            for i in range(len(value)):
+                if value[i][0] in self.timeline[value[i][1]]:
+                    self.timeline[value[i][1]][value[i][0]] += [key]
+                else:
+                    self.timeline[value[i][1]][value[i][0]] = [key]
+                if i + 1 < len(value):
+                    if value[i][0] == value[i + 1][0]:
+                        continue
+                    diff = value[i + 1][1] - value[i][1]
+                    if diff > 1:
+                        link_sorted = sorted([value[i][0], value[i + 1][0]])
+                        link = link_sorted[0] + "-" + link_sorted[1]
+                        for j in range(1, diff):
+                            if link in self.timeline[value[i][1] + j]:
+                                self.timeline[value[i][1] + j][link] += [key]
+                            else:
+                                self.timeline[value[i][1] + j][link] = [key]
 
         self.hubs.append(
             Hub(
@@ -177,6 +259,46 @@ class Renderer:
             self.icon_drone = self.icon_drone.convert_alpha()
 
     def _calculate_hub_card(self) -> int:
+        """
+        Calculate the maximum number of hub cards that fit on the screen.
+
+        Determines the total capacity based on the current terminal size.
+        It evaluates the available height and a fixed column width (50%
+        of the terminal) to return the optimal grid count for display.
+
+        Returns:
+            int: Total number of cards that can be rendered simultaneously.
+        """
+
+        console = Console()
+
+        width, height = console.size
+
+        CARD_HEIGHT = 8
+        CARD_WIDTH = 30
+
+        available_height = height - 8
+
+        rows = max(1, available_height // CARD_HEIGHT)
+
+        left_panel_width = int(width * 0.5)
+        cols = max(1, left_panel_width // CARD_WIDTH)
+
+        return rows * cols
+
+    def _calculate_connection_card(self) -> int:
+        """
+        Determine the maximum number of connection cards for the UI grid.
+
+        This method calculates the grid capacity by assessing the current
+        terminal dimensions. It accounts for a fixed card height and a
+        dedicated width (50% of the terminal) to compute the total
+        renderable count of connection cards.
+
+        Returns:
+            int: The total count of connection cards that can be displayed.
+        """
+
         console = Console()
 
         width, height = console.size
@@ -193,24 +315,23 @@ class Renderer:
 
         return rows * cols
 
-    def _calculate_connection_card(self) -> int:
-        console = Console()
-
-        width, height = console.size
-
-        CARD_HEIGHT = 4
-        CARD_WIDTH = 30
-
-        available_height = height - 8
-
-        rows = max(1, available_height // CARD_HEIGHT)
-
-        left_panel_width = int(width * 0.5)
-        cols = max(1, left_panel_width // CARD_WIDTH)
-
-        return rows * cols
-
     def _generate_hub_grid(self, hub_offset: int) -> Columns:
+        """
+        Generate a grid of Rich panels representing hub information.
+
+        This method creates a subset of hub cards based on the calculated
+        capacity and a given offset. Each card displays the hub's zone,
+        coordinates, and real-time drone occupancy with dynamic color
+        coding (green for available space, red for full capacity).
+
+        Args:
+            hub_offset (int): The starting index for the slice of hubs
+                to be displayed in the current view.
+
+        Returns:
+            Columns: A Rich Columns object containing the formatted
+                hub panels for the UI layout.
+        """
 
         hub_panels = []
         max_panels = self._calculate_hub_card()
@@ -241,6 +362,24 @@ class Renderer:
         )
 
     def _generate_connection_grid(self, connection_offset: int) -> Columns:
+        """
+        Generate a grid of Rich panels representing connections.
+
+        This method creates a subset of connection cards based on UI
+        capacity and an offset. Each card displays drone traffic via
+        dynamic color-coded tables. It maps hub colors to the panel's
+        title and subtitle to visually link connections to their
+        respective endpoints.
+
+        Args:
+            connection_offset (int): The starting index for the slice
+                of connections to be displayed in the current view.
+
+        Returns:
+            Columns: A Rich Columns object containing the formatted
+                connection panels for the UI layout.
+        """
+
         connection_panels = []
         max_panels = self._calculate_connection_card()
 
@@ -294,12 +433,25 @@ class Renderer:
         )
 
     def _create_layout(self) -> Layout:
+        """
+        Construct and organize the terminal's main dashboard layout.
+
+        This method defines the hierarchical structure of the UI using
+        Rich Layouts. It creates a top header for simulation turns and
+        splits the bottom section into two panels for real-time hub
+        status and connection status monitoring.
+
+        Returns:
+            Layout: A Rich Layout object representing the complete
+                dashboard architecture with nested panels.
+        """
+
         layout = Layout()
         layout.split_column(
             Layout(name="top", ratio=1), Layout(name="bottom", ratio=9)
         )
 
-        turn = Align(f"[bold]{self.turn}", align="center", vertical="bottom")
+        turn = Align(f"[bold]{self.turn}", align="center", vertical="middle")
         layout["top"].update(
             Panel(
                 turn,
@@ -330,14 +482,38 @@ class Renderer:
 
     def _output_info(self, obj: Hub | Connection | None) -> None:
         """
-        Dynamically generates and sizes the statistics display panel
-        when hovering over a map element.
+        Render an overlay information panel for a selected object.
+
+        This method generates a dynamic Pygame surface containing detailed
+        metrics for a Hub or Connection. It calculates the panel's size
+        based on text width, draws a themed container, and blits
+        attribute-value pairs onto the screen at a fixed position.
+
+        Args:
+            obj (Hub | Connection | None): The simulation object to
+                inspect. If None, the method returns without rendering.
         """
 
         if not obj:
             return
 
         def get_min_width(obj: Hub | Connection) -> int:
+            """
+            Calculate the required panel width based on text metrics.
+
+            This helper measures the pixel width of the longest descriptive
+            string (Name for Hubs, or the longest Zone name for
+            Connections) using the current font settings to ensure the
+            UI container fits the content.
+
+            Args:
+                obj (Hub | Connection): The object whose attributes
+                    will be rendered.
+
+            Returns:
+                int: The width in pixels of the longest text line.
+            """
+
             if isinstance(obj, Hub):
                 return self.font.render(
                     f"• Name: {obj.name}", True, self.colors.c["hover"]["rgb"]
@@ -420,6 +596,15 @@ class Renderer:
         self.screen.blit(container, (20, 20))
 
     def output_commands(self) -> None:
+        """
+        Render the on-screen command guide for user navigation.
+
+        This method draws a persistent UI overlay in the bottom-right
+        corner of the screen. It lists available keyboard and mouse
+        controls, including scrolling for hubs and connections, turn
+        progression, and camera manipulation, within a styled semi-
+        transparent container.
+        """
 
         width = 280
         height = 130
@@ -481,8 +666,16 @@ class Renderer:
 
     def _is_mouse_over_hubs(self) -> Hub | None:
         """
-        Calculates the Euclidean distance from the pointer to detect
-        hub hovering, accounting for the current zoom level.
+        Check if the mouse cursor is currently hovering over any hub.
+
+        This method converts the cursor's screen coordinates into the
+        simulation's world space by accounting for zoom and camera
+        offsets. It uses the Pythagorean theorem to perform circular
+        collision detection for each hub based on its projected radius.
+
+        Returns:
+            Hub | None: The hub object being hovered over, or None if
+                the mouse is not touching any hub.
         """
 
         position = pygame.mouse.get_pos()
@@ -509,8 +702,21 @@ class Renderer:
         self, hover_hubs: bool
     ) -> Connection | None:
         """
-        Projects mouse coordinates onto link segments to detect if a
-        route is currently being hovered.
+        Detect connection hovering using vector projection onto segments.
+
+        This method calculates the shortest distance from the mouse cursor
+        to a line segment. It projects the mouse vector onto the
+        connection vector to find the nearest point 'C' on the segment.
+        By clamping the scalar projection 't' between 0 and 1, it ensures
+        the collision check is confined to the finite segment limits.
+
+        Args:
+            hover_hubs (bool): If True, skips detection to prioritize
+                hub selection over overlapping connections.
+
+        Returns:
+            Connection | None: The hovered connection if the squared
+                distance to the segment is within the threshold (20px).
         """
 
         if hover_hubs:
@@ -567,8 +773,17 @@ class Renderer:
 
     def _draw_hubs(self, hover: Hub | None) -> None:
         """
-        Renders network nodes, manages their spatial highlighting, and
-        overlays the drone presence visual indicator.
+        Render all hubs on the screen using perspective transformations.
+
+        This method projects world coordinates to pixel space and applies
+        scaling to both radius and icons based on the current zoom level.
+        It features a highlight effect for hovered hubs (1.2x scale) and
+        conditionally renders drone icons when zoom levels are sufficient
+        to maintain visual clarity.
+
+        Args:
+            hover (Hub | None): The currently hovered hub instance to be
+                drawn with a selection highlight.
         """
 
         center_x = self.screen.get_width() / 2
@@ -601,8 +816,17 @@ class Renderer:
 
     def _draw_connection(self, hover: Connection | None) -> None:
         """
-        Draws the network infrastructure. Inactive lines are grayed
-        out, while used or hovered routes are highlighted.
+        Draw network edges using linear interpolation and dynamic styling.
+
+        This method projects the start and end points of a connection from
+        world coordinates to screen pixels. It applies a multi-pass
+        rendering technique: a background highlight for hovered states
+        and a foreground stroke with variable thickness and color-coding
+        to reflect drone traffic and current zoom levels.
+
+        Args:
+            hover (Connection | None): The connection currently under
+                selection to be rendered with an emphasized stroke.
         """
 
         center_x = self.screen.get_width() / 2
@@ -653,9 +877,13 @@ class Renderer:
 
     def _draw(self) -> None:
         """
-        Orchestrates the complete rendering pipeline for a single frame.
-        Handles hover detection, draws connections and hubs, and displays
-        contextual information tooltips.
+        Execute the master rendering pipeline for the simulation.
+
+        This method orchestrates the drawing sequence by first performing
+        collision detection to determine the hover state. It then
+        sequentially renders connections, hubs, and UI overlays. The
+        order ensures correct Z-layering, where interactive info panels
+        and command guides are drawn last to remain on top.
         """
 
         hover_hub = self._is_mouse_over_hubs()
@@ -671,10 +899,51 @@ class Renderer:
 
         self.output_commands()
 
+    def _update_advencement(self) -> None:
+        turn = self.timeline[self.turn]
+
+        for hub in self.hubs:
+            if hub.name != self.map.end_hub.name:
+                hub.drones = 0
+
+        for connection in self.connections:
+            connection.drones = 0
+
+        for key, value in turn.items():
+            link = key.split("-")
+            if len(link) == 1:
+                hub = next(hub for hub in self.hubs if hub.name == key)
+                if hub.name != self.map.end_hub.name:
+                    hub.drones = len(value)
+                else:
+                    hub.drones += len(value)
+            else:
+                zone_a = link[0]
+                zone_b = link[1]
+                connection = next(
+                    c
+                    for c in self.connections
+                    if (c.zone_1 == zone_a and c.zone_2 == zone_b)
+                    or (c.zone_1 == zone_b and c.zone_2 == zone_a)
+                )
+                connection.drones = len(value)
+
     def _manage_events(self, events: List, live: Live) -> bool:
         """
-        Intercepts user actions including window closure, mouse wheel
-        zoom levels, and drag-and-drop camera panning.
+        Handle user input for camera control and UI navigation.
+
+        This dispatcher processes mouse and keyboard events to update the
+        simulation state. It manages zoom levels, adjusts camera offsets
+        via relative mouse movement, and implements pagination for hub
+        and connection displays. It also triggers UI refreshes through
+        the Rich Live context upon data changes.
+
+        Args:
+            events (List): A list of Pygame events to process.
+            live (Live): The Rich Live display instance for UI updates.
+
+        Returns:
+            bool: False if a QUIT event is detected, True otherwise.
         """
 
         for event in events:
@@ -725,15 +994,22 @@ class Renderer:
                     live.update(self._create_layout())
 
                 if event.key == pygame.K_SPACE:
-                    self.turn += 1
-                    live.update(self._create_layout())
+                    if self.turn < self.max_turn:
+                        self.turn += 1
+                        self._update_advencement()
+                        live.update(self._create_layout())
 
         return True
 
     def run(self) -> None:
         """
-        Starts the main engine loop at 60 FPS and securely loads the
-        interface icons.
+        Execute the main application loop and resource management.
+
+        This method initializes the Pygame environment, loads graphical
+        assets with fallback error handling, and orchestrates the
+        dual-rendering system. It synchronizes a 60 FPS Pygame display
+        for the map visualization with a Rich Live terminal interface
+        for telemetry data, maintaining state until the user exits.
         """
 
         pygame.init()
