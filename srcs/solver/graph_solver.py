@@ -4,12 +4,53 @@ import heapq as hp
 
 
 class Solver:
+    """
+    Solver class for drone pathfinding and scheduling in a hub network.
+
+    Attributes:
+        map (MapModel): Configuration of the map, hubs, and connections.
+        reservation (Dict[Tuple, List[str]]): Tracks reservations for locations
+            and links per turn.
+
+    Methods:
+        init_registry():
+            Initializes internal registries for hubs and connections.
+
+        _is_available(location, turn, capacity, is_endpoint):
+            Checks if a location or link is available for reservation.
+
+        _book_reservation(id, location, turn):
+            Books a reservation for a drone at a location or link for a turn.
+
+        _find_path(start_hub, end_hub):
+            Finds a valid path from start to end hub considering constraints.
+
+        generate_solution():
+            Generates a solution assigning paths to all drones.
+
+        generate_timeline(solutions):
+            Builds a timeline of drone positions and link usage per turn.
+    """
 
     def __init__(self, map_config: MapModel):
+        """
+        Initialize the GraphSolver with a map configuration.
+
+        Args:
+            map_config (MapModel): The map configuration model to use.
+        """
+
         self.map = map_config
         self.reservation: Dict[Tuple, List[str]] = {}
 
     def init_registry(self) -> None:
+        """
+        Initializes the registry for hubs and their connections.
+
+        Sets up dictionaries to store hub records and index hubs by name.
+        Populates records with connection details, excluding blocked zones.
+        """
+
         self.records: Dict[str, List[Any]] = {}
         self.index_hubs: Dict[str, HubModel] = {}
 
@@ -55,6 +96,19 @@ class Solver:
     def _is_available(
         self, location: str, turn: int, capacity: int, is_endpoint: bool
     ) -> bool:
+        """
+        Check if a location is available at a given turn.
+
+        Args:
+            location (str): The location identifier.
+            turn (int): The turn number.
+            capacity (int): Maximum allowed reservations at the location.
+            is_endpoint (bool): Whether the location is an endpoint.
+
+        Returns:
+            bool: True if the location is available, False otherwise.
+        """
+
         if is_endpoint:
             return True
 
@@ -66,15 +120,33 @@ class Solver:
         return False
 
     def _book_reservation(self, id: str, location: str, turn: int) -> None:
+        """
+        Books a reservation for the given id at a specific location and turn.
+        Adds the id to the reservation list for (location, turn), creating a
+        new entry if necessary.
+        """
+
         if (location, turn) in self.reservation:
             self.reservation[(location, turn)].append(id)
             return
         self.reservation[(location, turn)] = [id]
 
-    def _find_path(self, start_hub: str, end_hub: str) -> List[Tuple]:
+    def _find_path(self, start_hub: str, end_hub: str) -> List[Tuple] | None:
+        """
+        Finds a path from start_hub to end_hub using a priority queue.
+
+        Args:
+            start_hub (str): The starting hub identifier.
+            end_hub (str): The destination hub identifier.
+
+        Returns:
+            List[Tuple]: A list of (hub, turn) tuples representing the path
+            from start_hub to end_hub, or None if no path is found.
+        """
+
         visited = set()
-        heap = []
-        path = []
+        heap: List[Any] = []
+        path: List[Tuple] = []
         turn = 0
 
         hp.heappush(heap, (turn, 0, start_hub, path))
@@ -87,7 +159,8 @@ class Solver:
             visited.add((move[2], move[0]))
 
             if move[2] == end_hub:
-                return move[3]
+                if isinstance(move[3], List):
+                    return move[3]
 
             for d in self.records[move[2]]:
                 turn_to_go = d["cost"]
@@ -136,17 +209,32 @@ class Solver:
                         move[3] + [(move[2], move[0] + 1)],
                     ),
                 )
+        return None
 
-    def _generate_solution(self) -> Dict[str, List[Tuple]]:
+    def generate_solution(self) -> Dict[str, List[Tuple]]:
+        """
+        Generates a solution mapping each drone to its path from the start hub
+        to the end hub. Books reservations for each segment and node along the
+        path.
+
+        Returns:
+            Dict[str, List[Tuple]]: A dictionary mapping drone IDs to their
+            respective paths as lists of tuples.
+        """
+
         self.init_registry()
 
         solution: Dict[str, List[Tuple]] = {}
 
         for i in range(1, self.map.nb_drones + 1):
             id = "D" + str(i)
-            solution[id] = self._find_path(
+            path = self._find_path(
                 self.map.start_hub.name, self.map.end_hub.name
             )
+
+            if path:
+                solution[id] = path
+
             if isinstance(solution[id], List):
                 for i in range(len(solution[id])):
                     if i + 1 < len(solution[id]):
@@ -163,12 +251,21 @@ class Solver:
                     )
         return solution
 
-    def _generate_timeline(
+    def generate_timeline(
         self, solutions: Dict[str, List[Tuple]]
     ) -> Dict[int, Dict[str, List[str]]]:
+        """
+        Generate a timeline of agent positions and transitions per turn.
 
-        if not self.map:
-            return
+        Args:
+            solutions (Dict[str, List[Tuple]]): Mapping of agent names to their
+                list of (location, turn) steps.
+
+        Returns:
+            Dict[int, Dict[str, List[str]]]: Timeline mapping each turn to a
+            dict of locations or transitions, each containing a list of agent
+            names.
+        """
 
         timeline: Dict[int, Dict[str, List[str]]] = {}
 

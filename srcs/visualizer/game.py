@@ -9,8 +9,7 @@ from rich.panel import Panel
 from rich.table import Table, box
 from rich.columns import Columns
 from rich.align import Align
-from srcs.solver.solver import Solver
-import json
+from srcs.solver.graph_solver import Solver
 
 
 class Hub:
@@ -74,6 +73,16 @@ class Connection:
     def __init__(
         self, zone_1: str, zone_2: str, capacity: int, drones: int = 0
     ) -> None:
+        """
+        Initialize a game connection between two zones.
+
+        Args:
+            zone_1 (str): Name of the first zone.
+            zone_2 (str): Name of the second zone.
+            capacity (int): Maximum capacity of the connection.
+            drones (int, optional): Number of drones present. Defaults to 0.
+        """
+
         self.zone_1 = zone_1
         self.zone_2 = zone_2
         self.drones = drones
@@ -150,7 +159,7 @@ class Renderer:
 
         solver = Solver(self.map)
 
-        self.solutions: Dict[str, List[Tuple]] = solver._generate_solution()
+        self.solutions: Dict[str, List[Tuple]] = solver.generate_solution()
 
         nb_turn = set()
 
@@ -161,7 +170,7 @@ class Renderer:
         self.max_turn = max(nb_turn)
 
         self.timeline: Dict[int, Dict[str, List[str]]] = (
-            solver._generate_timeline(self.solutions)
+            solver.generate_timeline(self.solutions)
         )
 
         self.hubs.append(
@@ -316,7 +325,7 @@ class Renderer:
         hub_panels = []
         max_panels = self._calculate_hub_card()
 
-        hub_cards = self.hubs[hub_offset : max_panels + hub_offset]
+        hub_cards = self.hubs[hub_offset: max_panels + hub_offset]
 
         for hub in hub_cards:
             tab = Table(box=box.ROUNDED, show_header=False, expand=True)
@@ -351,7 +360,7 @@ class Renderer:
         title and subtitle to visually link connections to their
         respective endpoints.
 
-        Args:
+        Args:s
             connection_offset (int): The starting index for the slice
                 of connections to be displayed in the current view.
 
@@ -364,7 +373,7 @@ class Renderer:
         max_panels = self._calculate_connection_card()
 
         connection_cards = self.connections[
-            connection_offset : max_panels + connection_offset
+            connection_offset: max_panels + connection_offset
         ]
 
         for connection in connection_cards:
@@ -495,9 +504,13 @@ class Renderer:
             """
 
             if isinstance(obj, Hub):
-                return self.font.render(
-                    f"• Name: {obj.name}", True, self.colors.c["hover"]["rgb"]
-                ).get_width()
+                return int(
+                    self.font.render(
+                        f"• Name: {obj.name}",
+                        True,
+                        self.colors.c["hover"]["rgb"],
+                    ).get_width()
+                )
             else:
                 size_1 = self.font.render(
                     f"• Zone 1: {obj.zone_1}",
@@ -509,7 +522,7 @@ class Renderer:
                     True,
                     self.colors.c["hover"]["rgb"],
                 ).get_width()
-                return size_1 if size_1 > size_2 else size_2
+                return int(size_1 if size_1 > size_2 else size_2)
 
         padding_x = 10
         padding_y = 10
@@ -880,6 +893,19 @@ class Renderer:
         self.output_commands()
 
     def _update_advencement(self, backspace: bool) -> None:
+        """
+        Update the number of drones at each hub and connection for the current
+        turn.
+
+        Args:
+            backspace (bool): If True, decrement drones at the end hub;
+            otherwise, increment.
+
+        This method resets drone counts for all hubs (except the end hub) and
+        all connections, then updates them based on the current turn's
+        movements.
+        """
+
         turn = self.timeline[self.turn]
 
         for hub in self.hubs:

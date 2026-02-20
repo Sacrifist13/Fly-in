@@ -1,4 +1,4 @@
-PYTHON_CMD  := uv run python3 main.py maps/hard/03_ultimate_challenge.txt
+PYTHON_CMD  := uv run python3 main.py maps/hard/03_ultimate_challenge.txt --visual
 
 BOLD   := \033[1m
 RESET  := \033[0m
