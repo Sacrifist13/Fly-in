@@ -160,29 +160,9 @@ class Renderer:
 
         self.max_turn = max(nb_turn)
 
-        self.timeline: Dict[int, Dict[str, List[str]]] = {}
-
-        for i in range(1, self.max_turn + 1):
-            self.timeline[i] = {}
-
-        for key, value in self.solutions.items():
-            for i in range(len(value)):
-                if value[i][0] in self.timeline[value[i][1]]:
-                    self.timeline[value[i][1]][value[i][0]] += [key]
-                else:
-                    self.timeline[value[i][1]][value[i][0]] = [key]
-                if i + 1 < len(value):
-                    if value[i][0] == value[i + 1][0]:
-                        continue
-                    diff = value[i + 1][1] - value[i][1]
-                    if diff > 1:
-                        link_sorted = sorted([value[i][0], value[i + 1][0]])
-                        link = link_sorted[0] + "-" + link_sorted[1]
-                        for j in range(1, diff):
-                            if link in self.timeline[value[i][1] + j]:
-                                self.timeline[value[i][1] + j][link] += [key]
-                            else:
-                                self.timeline[value[i][1] + j][link] = [key]
+        self.timeline: Dict[int, Dict[str, List[str]]] = (
+            solver._generate_timeline(self.solutions)
+        )
 
         self.hubs.append(
             Hub(
@@ -899,7 +879,7 @@ class Renderer:
 
         self.output_commands()
 
-    def _update_advencement(self) -> None:
+    def _update_advencement(self, backspace: bool) -> None:
         turn = self.timeline[self.turn]
 
         for hub in self.hubs:
@@ -916,7 +896,10 @@ class Renderer:
                 if hub.name != self.map.end_hub.name:
                     hub.drones = len(value)
                 else:
-                    hub.drones += len(value)
+                    if backspace:
+                        hub.drones -= len(value)
+                    else:
+                        hub.drones += len(value)
             else:
                 zone_a = link[0]
                 zone_b = link[1]
@@ -996,7 +979,13 @@ class Renderer:
                 if event.key == pygame.K_SPACE:
                     if self.turn < self.max_turn:
                         self.turn += 1
-                        self._update_advencement()
+                        self._update_advencement(False)
+                        live.update(self._create_layout())
+
+                if event.key == pygame.K_BACKSPACE:
+                    if self.turn > 0:
+                        self.turn -= 1
+                        self._update_advencement(True)
                         live.update(self._create_layout())
 
         return True

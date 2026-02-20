@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Tuple
 from srcs.parsing.models import MapModel, HubModel
-import json
 import heapq as hp
 
 
@@ -163,3 +162,46 @@ class Solver:
                         id, solution[id][i][0], solution[id][i][1]
                     )
         return solution
+
+    def _generate_timeline(
+        self, solutions: Dict[str, List[Tuple]]
+    ) -> Dict[int, Dict[str, List[str]]]:
+
+        if not self.map:
+            return
+
+        timeline: Dict[int, Dict[str, List[str]]] = {}
+
+        nb_turn = set()
+
+        for value in solutions.values():
+            for step in value:
+                nb_turn.add(step[1])
+
+        max_turn = max(nb_turn)
+
+        for i in range(0, max_turn + 1):
+            timeline[i] = {}
+
+        for key, value in solutions.items():
+            for i in range(len(value)):
+                if value[i][0] in timeline[value[i][1]]:
+                    timeline[value[i][1]][value[i][0]] += [key]
+                else:
+                    timeline[value[i][1]][value[i][0]] = [key]
+                if i + 1 < len(value):
+                    if value[i][0] == value[i + 1][0]:
+                        continue
+                    diff = value[i + 1][1] - value[i][1]
+                    if diff > 1:
+                        link_sorted = sorted([value[i][0], value[i + 1][0]])
+                        link = link_sorted[0] + "-" + link_sorted[1]
+                        for j in range(1, diff):
+                            if link in timeline[value[i][1] + j]:
+                                timeline[value[i][1] + j][link] += [key]
+                            else:
+                                timeline[value[i][1] + j][link] = [key]
+        timeline[0][self.map.start_hub.name] = [
+            key for key in solutions.keys()
+        ]
+        return timeline
