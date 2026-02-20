@@ -234,20 +234,22 @@ class Solver:
 
             if path:
                 solution[id] = path
+            else:
+                continue
 
             if isinstance(solution[id], List):
-                for i in range(len(solution[id])):
-                    if i + 1 < len(solution[id]):
-                        if solution[id][i][0] != solution[id][i + 1][0]:
+                for j in range(len(solution[id])):
+                    if j + 1 < len(solution[id]):
+                        if solution[id][j][0] != solution[id][j + 1][0]:
                             link = sorted(
-                                [solution[id][i][0], solution[id][i + 1][0]]
+                                [solution[id][j][0], solution[id][j + 1][0]]
                             )
                             link_str = link[0] + "-" + link[1]
                             self._book_reservation(
-                                id, link_str, solution[id][i][1]
+                                id, link_str, solution[id][j][1]
                             )
                     self._book_reservation(
-                        id, solution[id][i][0], solution[id][i][1]
+                        id, solution[id][j][0], solution[id][j][1]
                     )
         return solution
 

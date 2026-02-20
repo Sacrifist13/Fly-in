@@ -138,7 +138,7 @@ class Manager:
                 all_turn.add(step[1])
         nb_turn: int = max(all_turn)
 
-        latest_loc = {}
+        latest_loc: Dict[str, List] = {}
 
         if not isinstance(self.map_config, MapModel):
             return
@@ -159,10 +159,10 @@ class Manager:
                     previous_loc = latest_loc[id][-1]
                     if previous_loc == key:
                         continue
-
+                    latest_loc[id].append(key)
                     t.append(f"{id}-{key}")
 
-            turn.append(" ".join(t))
+            turn.append(" ".join(sorted(t)))
 
         output = "\n".join(turn)
         print(output)
